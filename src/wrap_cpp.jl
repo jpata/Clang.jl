@@ -97,8 +97,8 @@ function check_args(args)
     check = true
     for arg in args
         argt = cu_type(arg)
-        check &= isa(argt, cindex.LValueReference)
-        check &= isa(argt, cindex.FirstBuiltin)
+        check = check && !isa(argt, cindex.LValueReference)
+        #check &= isa(argt, cindex.FirstBuiltin)
     end
     return check
 end
@@ -115,6 +115,15 @@ function emit_args(out::IO, args)
     end
 end
 
+function emit_args_vals(out::IO, args)
+    print(out, join(map(spelling, args), ", "))
+end
+
+# function wrap(out::IO, method::cindex.Constructor, nameid::Int)
+#     wrap(out, convert(cindex.CXXMethod, method), nameid)
+# end
+
+
 function wrap(out::IO, method::cindex.CXXMethod, nameid::Int)
     buf = IOBuffer()
 
@@ -125,6 +134,7 @@ function wrap(out::IO, method::cindex.CXXMethod, nameid::Int)
     methodname = spelling(method)
     parentdecl = cindex.getCursorLexicalParent(method)
     parentname = spelling(parentdecl)
+    #println("$parentname::$methodname", args)
 
     # emit return type and name
     rettype = return_type(method)
@@ -137,7 +147,7 @@ function wrap(out::IO, method::cindex.CXXMethod, nameid::Int)
    
     # emit arguments
     openparen(buf)
-        print(buf, parentname, "* this")
+        print(buf, parentname, "* x")
         length(args) > 0 && comma(buf)
         space(buf)
         emit_args(buf, args)
@@ -153,10 +163,12 @@ function wrap(out::IO, method::cindex.CXXMethod, nameid::Int)
         print(buf, "return")
         space(buf)
     end    
-    print(buf, "this->", methodname)
+    print(buf, "x->", methodname)
     openparen(buf)
-        emit_args(buf, args)
+        #emit_args(buf, args)
+        emit_args_vals(buf, args)
     closeparen(buf)
+    print(buf, ";")
     
     # close
     newline(buf)
@@ -166,6 +178,56 @@ function wrap(out::IO, method::cindex.CXXMethod, nameid::Int)
     # print the buffer to the output
     print(out, takebuf_string(buf))
     # TODO: return information about the thing we wrapped?
+end
+
+
+function wrap(out::IO, method::cindex.Constructor, nameid::Int)
+    buf = IOBuffer()
+
+    # bail out if any argument is not supported
+    args = get_args(method)
+    if (!check_args(args))
+        warn("mismatch in args: $method")
+        return false
+    end
+ 
+    methodname = spelling(method)
+    parentdecl = cindex.getCursorLexicalParent(method)
+    parentname = spelling(parentdecl)
+
+    # emit return type and name
+    print(buf, parentname)
+    print(buf, "*")
+
+    space(buf)
+    print(buf, parentname, "_", methodname, nameid)
+    
+    # emit arguments
+    openparen(buf)
+        emit_args(buf, args)
+    closeparen(buf)
+    space(buf)
+    
+    opencurly(buf)
+    newline(buf)
+    print(buf, "  ")
+
+
+    print(buf, "return")
+    space(buf)
+    print(buf, "new ", parentname)
+    openparen(buf)
+        emit_args_vals(buf, args)
+    closeparen(buf)
+    print(buf, ";")
+    
+    # close
+    newline(buf)
+    closecurly(buf)
+    newline(buf)
+
+    # print the buffer to the output
+    print(out, takebuf_string(buf))
 end
 
 function wrap(out::IO, top::cindex.ClassDecl)
@@ -205,7 +267,8 @@ cl_to_c = {
     cindex.LongDouble     => "long double",
     cindex.Enum           => "enum",
     cindex.NullPtr        => "NULL",
-    cindex.UInt128        => "uint128_t"
+    cindex.UInt128        => "uint128_t",
+    cindex.LValueReference=> "LVAL"
     }
 
 ################################################################################
@@ -227,11 +290,18 @@ end
 
 function wrapjl(out::IO, ptr::cindex.Pointer)
     pointee = pointee_type(ptr)
-    
-    print(out, "Ptr")
-    opencurly(out)
-    wrapjl(out, pointee)
-    closecurly(out)
+    if !haskey(cl_to_jl, typeof(pointee))
+        # print(out, "Ptr")
+        # opencurly(out)
+        # print(out, "Void")
+        wrapjl(out, pointee)
+        # closecurly(out)
+    else
+        print(out, "Ptr")
+        opencurly(out)
+        wrapjl(out, pointee)
+        closecurly(out)
+    end
 end
 
 function wrapjl(out::IO, parm::cindex.ParmDecl)
@@ -239,18 +309,18 @@ function wrapjl(out::IO, parm::cindex.ParmDecl)
 end
 
 function wrapjl_args(out::IO, args)
-    emit_arg(out,arg,docomma=false) = begin
+    emit_arg(out,arg,docomma=true) = begin
         print(out,spelling(arg))
         print(out,"::")
         wrapjl(out,arg)
         docomma && (comma(out); space(out))
     end
     for i = 1:length(args)
-        emit_arg(out,args[i], i < length(args))
+        emit_arg(out, args[i]) #, i < length(args))
     end
 end
 
-function wrapjl(out::IO, method::cindex.CXXMethod, id::Int)
+function wrapjl(out::IO, libname::ASCIIString, method::cindex.CXXMethod, id::Int)
     buf = IOBuffer()
 
     methodname = spelling(method)
@@ -262,11 +332,42 @@ function wrapjl(out::IO, method::cindex.CXXMethod, id::Int)
 
     print(buf, "@method")                                   # emit Julia call
     space(buf)
+    print(buf, libname)                                  # parent class
+    space(buf)
     print(buf, parentname)                                  # parent class
     space(buf)
     print(buf, methodname)
     space(buf)
     wrapjl(buf, return_type(method))                        # return type
+    space(buf)
+    openparen(buf)
+    wrapjl_args(buf, args)                                  # arguments
+    closeparen(buf)
+    space(buf)
+    print(buf, methodname, id)             # C name
+    newline(buf)
+    print(out, takebuf_string(buf))
+end
+
+# function return_type(method::cindex.Constructor)
+#     return cindex.getCursorLexicalParent(method)
+# end
+
+function wrapjl(out::IO, libname::ASCIIString, method::cindex.Constructor, id::Int)
+    buf = IOBuffer()
+
+    methodname = spelling(method)
+    parentdecl = cindex.getCursorLexicalParent(method)
+    parentname = spelling(parentdecl)
+    
+    args = get_args(method)
+    if (!check_args(args)) return end                       # TODO: warning?
+
+    print(buf, "@constructor")                                   # emit Julia call
+    space(buf)
+    print(buf, libname)                                  # parent class
+    space(buf)
+    print(buf, parentname)                                  # parent class
     space(buf)
     openparen(buf)
     wrapjl_args(buf, args)                                  # arguments
@@ -346,10 +447,13 @@ function returns_value(rtype::CLType)
     return hasret
 end
 
-function get_args(method::cindex.CXXMethod)
+function get_args(method::Union(cindex.CXXMethod, cindex.Constructor))
     args = CLCursor[]
     for c in children(method)
-        isa(c,cindex.ParmDecl) ? push!(args, c) : break
+        #println(c)
+        if isa(c,cindex.ParmDecl)
+            push!(args, c)
+        end
     end
     return args
 end
