@@ -32,9 +32,10 @@ from a collection of header files. The following declarations are currently supp
   * note: struct support is limited to intrinsic types. Unsupported constructs presently include:
     nested structs and unions, as well as fixed-size arrays.
 
-Please see the following repositories for examples of the wrapper driver scripts and
-generator output:
+## Users
 
+* [Gtk.jl](https://github.com/JuliaLang/Gtk.jl): Julia Gtk bindings (uses heavily customized generator)
+* [CUFFT.jl](https://github.com/timholy/CUFFT.jl): Bindings to CUDA FFT library
 * [Sundials.jl](https://github.com/tshort/Sundials.jl): interface to the LLNL "SUite of Nonlinear and DIfferential/ALgebraic equation Solvers" package
 * [libCURL.jl](https://github.com/amitmurthy/libCURL.jl): wrapper of cURL
 
@@ -52,8 +53,12 @@ may only be available from an optional pre-release archive (e.g. Ubuntu PPA).
 
 ### Install
 
-To install using the Julia package manager, use: Pkg.add("Clang")
-
+To install using the Julia package manager, use: Pkg.add("Clang").
+You can use an external LLVM/Clang to build Clang.jl by specifying a llvm-config:
+```
+ENV["LLVM_CONFIG"]="/usr/lib/llvm-3.3/bin/llvm-config"
+Pkg.add("Clang")
+```
 
 ## Background Information
 
