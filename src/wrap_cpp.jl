@@ -111,7 +111,7 @@ function emit_args(out::IO, args)
         docomma && (comma(out); space(out))
     end
     for i = 1:length(args)
-        emit_arg(out,args[i], i < length(args))
+        emit_arg(out, args[i], i < length(args))
     end
 end
 
@@ -147,7 +147,7 @@ function wrap(out::IO, method::cindex.CXXMethod, nameid::Int)
    
     # emit arguments
     openparen(buf)
-        print(buf, parentname, "* x")
+        print(buf, parentname, "* __obj")
         length(args) > 0 && comma(buf)
         space(buf)
         emit_args(buf, args)
@@ -163,7 +163,7 @@ function wrap(out::IO, method::cindex.CXXMethod, nameid::Int)
         print(buf, "return")
         space(buf)
     end    
-    print(buf, "x->", methodname)
+    print(buf, "__obj->", methodname)
     openparen(buf)
         #emit_args(buf, args)
         emit_args_vals(buf, args)
@@ -290,25 +290,31 @@ end
 
 function wrapjl(out::IO, ptr::cindex.Pointer)
     pointee = pointee_type(ptr)
-    if !haskey(cl_to_jl, typeof(pointee))
-        # print(out, "Ptr")
-        # opencurly(out)
-        # print(out, "Void")
-        wrapjl(out, pointee)
-        # closecurly(out)
-    else
-        print(out, "Ptr")
-        opencurly(out)
-        wrapjl(out, pointee)
-        closecurly(out)
-    end
+    print(out, "Ptr")
+    opencurly(out)
+    wrapjl(out, pointee)
+    closecurly(out)
+
+    # if !haskey(cl_to_jl, typeof(pointee))
+    #     # print(out, "Ptr")
+    #     # opencurly(out)
+    #     # print(out, "Void")
+    #     wrapjl(out, pointee)
+    #     # closecurly(out)
+    # else
+    #     print(out, "Ptr")
+    #     opencurly(out)
+    #     wrapjl(out, pointee)
+    #     closecurly(out)
+    # end
 end
 
 function wrapjl(out::IO, parm::cindex.ParmDecl)
+    #println(name(parm), " ", cu_type(parm))
     wrapjl(out, cu_type(parm))
 end
 
-function wrapjl_args(out::IO, args)
+function wrapjl_args(out::IO, args, defs=Any[])
     emit_arg(out,arg,docomma=true) = begin
         print(out,spelling(arg))
         print(out,"::")
@@ -328,6 +334,8 @@ function wrapjl(out::IO, libname::ASCIIString, method::cindex.CXXMethod, id::Int
     parentname = spelling(parentdecl)
     
     args = get_args(method)
+    defs = get_args_defaults(method)
+    #println("wrapjl: args=", join(args, ","))
     if (!check_args(args)) return end                       # TODO: warning?
 
     print(buf, "@method")                                   # emit Julia call
@@ -345,6 +353,13 @@ function wrapjl(out::IO, libname::ASCIIString, method::cindex.CXXMethod, id::Int
     closeparen(buf)
     space(buf)
     print(buf, methodname, id)             # C name
+    space(buf)
+    if length(defs)>0
+        s = ", "
+    else
+        s = ""
+    end
+    print(buf, string("(", join(defs, ", "), "$s )"))
     newline(buf)
     print(out, takebuf_string(buf))
 end
@@ -361,6 +376,7 @@ function wrapjl(out::IO, libname::ASCIIString, method::cindex.Constructor, id::I
     parentname = spelling(parentdecl)
     
     args = get_args(method)
+    defs = get_args_defaults(method)
     if (!check_args(args)) return end                       # TODO: warning?
 
     print(buf, "@constructor")                                   # emit Julia call
@@ -374,6 +390,13 @@ function wrapjl(out::IO, libname::ASCIIString, method::cindex.Constructor, id::I
     closeparen(buf)
     space(buf)
     print(buf, methodname, id)             # C name
+    space(buf)
+    if length(defs)>0
+        s = ", "
+    else
+        s = ""
+    end
+    print(buf, string("(", join(defs, ", "), "$s )"))
     newline(buf)
     print(out, takebuf_string(buf))
 end
@@ -450,7 +473,6 @@ end
 function get_args(method::Union(cindex.CXXMethod, cindex.Constructor))
     args = CLCursor[]
     for c in children(method)
-        #println(c)
         if isa(c,cindex.ParmDecl)
             push!(args, c)
         end
