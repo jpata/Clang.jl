@@ -334,7 +334,7 @@ function wrapjl(out::IO, libname::ASCIIString, method::cindex.CXXMethod, id::Int
     parentname = spelling(parentdecl)
     
     args = get_args(method)
-    defs = get_args_defaults(method)
+    defs = cindex.function_arg_defaults(method)
     #println("wrapjl: args=", join(args, ","))
     if (!check_args(args)) return end                       # TODO: warning?
 
@@ -376,7 +376,7 @@ function wrapjl(out::IO, libname::ASCIIString, method::cindex.Constructor, id::I
     parentname = spelling(parentdecl)
     
     args = get_args(method)
-    defs = get_args_defaults(method)
+    defs = cindex.function_arg_defaults(method)
     if (!check_args(args)) return end                       # TODO: warning?
 
     print(buf, "@constructor")                                   # emit Julia call
