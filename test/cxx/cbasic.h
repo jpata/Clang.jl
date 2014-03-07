@@ -11,3 +11,7 @@ typedef enum {
 int func(int x, int y=1) {
     return x+y;
 }
+
+const char* func2() {
+    return 0;
+}
